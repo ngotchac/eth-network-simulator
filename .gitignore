@@ -1,0 +1,22 @@
+# Emacs backups
+\#*#
+.#*
+*~
+
+# Vim backups
+.*.sw[po]
+
+# Patch files
+*.orig
+*.rej
+*.diff
+*.patch
+
+# Temp data
+tmp-data/
+
+# NPM files
+node_modules/
+
+# Build
+build
