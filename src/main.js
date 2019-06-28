@@ -68,19 +68,27 @@ async function run_node (index, validator) {
 	// console.log(`Running: parity ${params.join(" ")}`);
 	const parity_proc = spawn(PARITY_BIN_PATH, params);
 	let is_running = true;
+	let stdout = "";
+	let stderr =  "";
 
 	console.log(`Spawned node ${index} with PID ${parity_proc.pid}`);
 
 	parity_proc.stdout.on('data', (data) => {
+		stdout += data.toString();
 		// console.log(`[#${index}] ${data}`);
 	});
 
 	parity_proc.stderr.on('data', (data) => {
+		stderr += data.toString();
 		// console.log(`[#${index}] ${data}`);
 	});
 
 	parity_proc.on('close', (code) => {
 		console.log(`Node ${index} exited with code ${code}.`);
+		if (code !== 0) {
+			console.log(`stdout:\n${stdout}`);
+			console.log(`stderr:\n${stderr}`);
+		}
 		is_running = false;
 	});
 
