@@ -4,8 +4,12 @@ const fs = require("fs");
 
 const CONFIG = require("./config");
 
+const eth = require("./eth");
 const make_spec = require("./make-spec");
 const request = require("./request");
+const watcher = require("./watcher");
+const worker = require("./worker");
+
 const { mkdir, rimraf, sleep } = require("./utils");
 
 const {
@@ -19,32 +23,13 @@ const {
 	SPEC_PATH,
 } = CONFIG.paths;
 
-async function add_peer (rpc_port, enode) {
-	const params = [ enode ];
-	return request("parity_addReservedPeer", params, rpc_port);
-}
-
-async function remove_peer (rpc_port, enode) {
-	const params = [ enode ];
-	return request("parity_removeReservedPeer", params, rpc_port);
-}
-
-async function fetch_enode (port) {
-	try {
-		const data = await request("parity_enode", [], port);
-		if (!data.result) {
-			// console.warn("Invalid data for enode:", data);
-		} else {
-			return data.result;
-		}
-	} catch (error) {
-		if (error.code !== "ECONNREFUSED") {
-			throw error;
-		}
-	}
-	await sleep(750);
-	return fetch_enode(port);
-}
+// Global vars
+const timers = {
+	watcher_id: -1,
+	worker_id: -1,
+	chaos_monkey_id: -1,
+};
+const running_processes = [];
 
 async function run_node (index, validator) {
 	const data_dir = path.join(DATA_DIR, `node-${index}`);
@@ -65,22 +50,26 @@ async function run_node (index, validator) {
 		// "-l", "network=trace",
 	];
 
-	// console.log(`Running: parity ${params.join(" ")}`);
 	const parity_proc = spawn(PARITY_BIN_PATH, params);
 	let is_running = true;
 	let stdout = "";
 	let stderr =  "";
 
+	running_processes.push({
+		process: parity_proc,
+		is_running: () => is_running,
+		stdout: () => stdout,
+		stderr: () => stderr,
+	});
+
 	console.log(`Spawned node ${index} with PID ${parity_proc.pid}`);
 
 	parity_proc.stdout.on('data', (data) => {
 		stdout += data.toString();
-		// console.log(`[#${index}] ${data}`);
 	});
 
 	parity_proc.stderr.on('data', (data) => {
 		stderr += data.toString();
-		// console.log(`[#${index}] ${data}`);
 	});
 
 	parity_proc.on('close', (code) => {
@@ -92,7 +81,7 @@ async function run_node (index, validator) {
 		is_running = false;
 	});
 
-	const enode = await fetch_enode(rpc_port);
+	const enode = await eth.fetch_enode(rpc_port);
 	await request("parity_dropNonReservedPeers", [], rpc_port);
 
 	return {
@@ -103,6 +92,16 @@ async function run_node (index, validator) {
 		index,
 		is_running: () => is_running,
 	};
+}
+
+async function run_nodes (accounts, num_nodes) {
+	const promises = [];
+	for (let i = 0; i < num_nodes; i += 1) {
+		promises.push(run_node(i, accounts[i]));
+	}
+
+	const nodes = await Promise.all(promises);
+	return nodes;
 }
 
 async function create_account (index) {
@@ -148,108 +147,13 @@ async function create_account (index) {
 	});
 }
 
-async function send_tx (running_nodes) {
-	const from_idx = Math.floor(Math.random() * running_nodes.length);
-	const to_idx = Math.floor(Math.random() * running_nodes.length);
-
-	const params = {
-		from: running_nodes[from_idx].validator,
-		to: running_nodes[to_idx].validator,
-		value: "0x01",
-		// data: "0x" + "1".repeat(200),
-	};
-	const data = await request("personal_sendTransaction", [ params, "" ], running_nodes[from_idx].rpc_port);
-	const _tx = data.result;
-	// console.log("Sent transaction", tx);
-}
-
-async function fmt_node_data (node) {
-	const cols = process.stdout.columns;
-	const { index, rpc_port } = node;
-
-	const data = await request("eth_getBlockByNumber", [ "latest", false ], rpc_port);
-	const block = data.result;
-	const data_txs = await request("parity_allTransactions", [], rpc_port);
-	const txs = data_txs.result;
-	const peer_count_raw = (await request("net_peerCount", [], rpc_port)).result;
-	const peer_count = parseInt(peer_count_raw, 16);
-	const { gasUsed, gasLimit, size } = block;
-	const gas_perc = Math.round(parseInt(gasUsed, 16) / parseInt(gasLimit, 16) * 100 * 10) / 10;
-	const block_size = Math.round(parseInt(size, 16) / 1024 * 100) / 100;
-
-	const output = [
-		`BN=${parseInt(block.number, 16)} // BH=${block.hash.slice(0, 8)}...`,
-		`USAGE=${gas_perc}% // SIZE=${block_size}KB`,
-		`TXs=${txs.length} // PEERS=${peer_count}`
-	].join("\n");
-	const lines = output
-		.split("\n")
-		.map((line) => line.match(new RegExp('.{1,' + (cols - 7) + '}', 'g')))
-		.reduce((cur, lines) => [].concat(cur, lines), [])
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0)
-		.map((line, i) => {
-			if (i === 0) {
-				return `[#${index}] ${line}`;
-			} else {
-				return `     ${line}`;
-			}
-		});
-	return lines;
-}
-
-function watch (nodes) {
-	let total_lines = 0;
-	let running = false;
-	return setInterval(async () => {
-		if (running) {
-			return;
-		}
-		running = true;
-		try {
-			const promises = [];
-			for (const node of nodes) {
-				promises.push(fmt_node_data(node));
-			}
-			const all_lines = await Promise.all(promises);
-			// Flatten
-			const lines_to_print = all_lines.reduce((acc, lines) => [].concat(acc, lines), []);
-
-			// Clear all lines
-			process.stdout.moveCursor(0, -1 * total_lines);
-			for (let i = 0; i < total_lines; i += 1) {
-				process.stdout.clearLine();
-				process.stdout.moveCursor(0, 1);
-			}
-			// Place the cursor at the start
-			process.stdout.moveCursor(0, -1 * total_lines);
-			total_lines = 0;
-
-			for (const line of lines_to_print) {
-				process.stdout.write(`${line}\n`);
-				total_lines += 1;
-			}
-		} catch (err) {
-			console.error(err);
-		}
-		running = false;
-	}, 1500);
-}
-
-function work(nodes) {
-	return setInterval(async () => {
-		try {
-			const promises = [];
-			// for (let i = 0; i < 20; i += 1) {
-			for (let i = 0; i < 208; i += 1) {
-			// for (let i = 0; i < nodes.length * 25; i += 1) {
-				promises.push(send_tx(nodes));
-			}
-			await Promise.all(promises);
-		} catch (error) {
-			console.error("Error:", error);
-		}
-	}, 10000);
+async function create_accounts (num_nodes) {
+	const promises = [];
+	for (let i = 0; i < num_nodes; i += 1) {
+		promises.push(create_account(i));
+	}
+	const accounts = await Promise.all(promises);
+	return accounts;
 }
 
 async function chaos_monkey (nodes) {
@@ -268,26 +172,26 @@ async function chaos_monkey (nodes) {
 				if (are_connected) {
 					for (const node_a of nodes_a) {
 						for (const node_b of nodes_b) {
-							promises.push(remove_peer(node_a.rpc_port, node_b.enode));
-							promises.push(remove_peer(node_b.rpc_port, node_a.enode));
+							promises.push(eth.remove_peer(node_a.rpc_port, node_b.enode));
+							promises.push(eth.remove_peer(node_b.rpc_port, node_a.enode));
 						}
 					}
 					// Disconnect all from first peer
 					for (const node of nodes.slice(1)) {
-						promises.push(remove_peer(nodes[0].rpc_port, node.enode));
-						promises.push(remove_peer(node.rpc_port, nodes[0].enode));
+						promises.push(eth.remove_peer(nodes[0].rpc_port, node.enode));
+						promises.push(eth.remove_peer(node.rpc_port, nodes[0].enode));
 					}
 				} else {
 					for (const node_a of nodes_a) {
 						for (const node_b of nodes_b) {
-							promises.push(add_peer(node_a.rpc_port, node_b.enode));
-							promises.push(add_peer(node_b.rpc_port, node_a.enode));
+							promises.push(eth.add_peer(node_a.rpc_port, node_b.enode));
+							promises.push(eth.add_peer(node_b.rpc_port, node_a.enode));
 						}
 					}
 					// Connect all to first peer
 					for (const node of nodes.slice(1)) {
-						promises.push(add_peer(nodes[0].rpc_port, node.enode));
-						promises.push(add_peer(node.rpc_port, nodes[0].enode));
+						promises.push(eth.add_peer(nodes[0].rpc_port, node.enode));
+						promises.push(eth.add_peer(node.rpc_port, nodes[0].enode));
 					}
 				}
 				await Promise.all(promises);
@@ -313,42 +217,48 @@ async function chaos_monkey (nodes) {
 		}
 		// Toggle connection, even if there are errors
 		are_connected = !are_connected;
-	}, 60 * 1000);
+	}, 30 * 1000);
 }
 
-function copy_keys (node_idx, nodes_len) {
-	const to_folder_path = path.join(DATA_DIR, `node-${node_idx}/keys/DemoPoA`);
+async function terminate () {
+	process.stdout.write("\n\n");
+	console.log("Stopping processes...");
 
-	for (let i = 0; i < nodes_len; i += 1) {
-		if (i === node_idx) {
-			continue;
-		}
-		const from_folder_path = path.join(DATA_DIR, `node-${i}/keys/DemoPoA`);
-		// Copy every files in `from_...` to `to_...`
-		fs.readdirSync(from_folder_path).forEach((filename) => {
-			const filepath = path.join(from_folder_path, filename);
-			const dest_filepath = path.join(to_folder_path, filename);
-			fs.copyFileSync(filepath, dest_filepath);
-		});
+	clearInterval(timers.watcher_id);
+	clearInterval(timers.worker_id);
+	clearInterval(timers.chaos_monkey_id);
+
+	for (const running_process of running_processes) {
+		running_process.process.kill("SIGINT");
 	}
+
+	console.log("Waiting for processes to exit...");
+	// Don't wait for more than 5 seconds
+	const max_wait = 5 * 1000;
+	const start_wait = Date.now();
+	while (running_processes.find((p) => p.is_running()) && (Date.now() - start_wait) < max_wait) {
+		await sleep(250);
+	}
+
+	for (const running_process of running_processes.filter((n) => !n.is_running())) {
+		running_process.process.kill("SIGKILL");
+		await sleep(150);
+	}
+	console.log("All processes exited!");
 }
 
 async function main () {
 	const NUM_VALIDATORS = 5;
 	const NUM_NODES = 1 + 2*NUM_VALIDATORS;
 
+	console.log(`**** Starting ${NUM_NODES} nodes...`);
+
 	rimraf(DATA_DIR);
 	mkdir(DATA_DIR);
 	mkdir(LOGS_DIR);
 
-	const v_promises = [];
-	for (let i = 0; i < NUM_NODES; i += 1) {
-		v_promises.push(create_account(i));
-	}
-	const accounts = await Promise.all(v_promises);
-	for (let i = 0; i < NUM_NODES; i += 1) {
-		// copy_keys(i, NUM_NODES);
-	}
+	console.log("**** Creating accounts...");
+	const accounts = await create_accounts(NUM_NODES);
 
 	{
 		const owner = accounts[0];
@@ -367,72 +277,52 @@ async function main () {
 		});
 	}
 
-	const n_promises = [];
-	for (let i = 0; i < NUM_NODES; i += 1) {
-		n_promises.push(run_node(i, accounts[i]));
-	}
-	const nodes = await Promise.all(n_promises);
-
-	let watcher_id = -1;
-	let worker_id = -1;
-	let chaos_monkey_id = -1;
-
-	process.on("SIGINT", () => {
-		async function terminate () {
-			process.stdout.write("\n\n");
-			console.log("Stopping processes...");
-
-			clearInterval(watcher_id);
-			clearInterval(worker_id);
-			clearInterval(chaos_monkey_id);
-
-			for (const node of nodes) {
-				node.process.kill("SIGINT");
-			}
-
-			console.log("Waiting for processes to exit...");
-			// Don't wait for more than 5 seconds
-			const max_wait = 5000;
-			const start_wait = Date.now();
-			while (nodes.find((n) => n.is_running()) && (Date.now() - start_wait) < max_wait) {
-				await sleep(250);
-			}
-
-			for (const node of nodes.filter((n) => !n.is_running())) {
-				node.process.kill("SIGKILL");
-			}
-
-			console.log("Done!");
-			process.exit(0);
-		}
-
-		terminate().catch((error) => {
-			console.error(error);
-			process.exit(1);
-		});
-	});
+	console.log("**** Starting the nodes...");
+	const nodes = await run_nodes(accounts, NUM_NODES);
 
 	// Printing enodes
-	nodes.forEach((node, i) => console.log(`[#${i}]`, node.enode));
+	nodes.forEach((node, i) => console.log(`\t[#${i}]`, node.enode));
 	process.stdout.write("\n");
 
-	const ap_promises = [];
+
+	console.log("**** Connecting the nodes...");
+	const add_peers_promises = [];
 	for (let i = 0; i < NUM_NODES; i += 1) {
 		for (let j = 0; j < NUM_NODES; j += 1) {
 			if (i !== j) {
-				ap_promises.push(add_peer(nodes[i].rpc_port, nodes[j].enode));
+				add_peers_promises.push(eth.add_peer(nodes[i].rpc_port, nodes[j].enode));
 			}
 		}
 	}
-	await Promise.all(ap_promises);
+	await Promise.all(add_peers_promises);
 
-	watcher_id = watch(nodes);
-	worker_id = work(nodes);
-	chaos_monkey_id = chaos_monkey(nodes);
+	timers.watcher_id = watcher.run(nodes);
+	timers.worker_id = worker.run(nodes);
+	timers.chaos_monkey_id = chaos_monkey(nodes);
 }
+
+function exit_handler() {
+	terminate()
+		.then(() => {
+			console.log("Done!");
+			process.exit(0);
+		})
+		.catch((error) => {
+			console.error(error);
+			process.exit(1);
+		});
+}
+
+process.on("SIGINT", () => {
+	exit_handler();
+});
+// process.on("SIGTERM", () => {
+// 	exit_handler();
+// });
 
 main()
 	.catch((e) => {
 		console.error(e);
+		terminate();
 		process.exit(1);
 	});

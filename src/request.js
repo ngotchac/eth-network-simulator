@@ -1,7 +1,45 @@
 const http = require("http");
 
+const REQUEST_TIMEOUT = 5000;
+
 let req_id = 1;
-async function request (method, params, port) {
+async function request (method, params, port, retry = 3) {
+	return new Promise((resolve, reject) => {
+		let resolved = false;
+
+		const timeout_id = setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				if (retry > 0) {
+					console.warn(`Request ${method} to ${port} timed-out. Retrying...`);
+					request(method, params, port, retry - 1)
+						.then(resolve)
+						.catch(reject);
+				} else {
+					reject(new Error(`Request ${method} to ${port} timed-out.`));
+				}
+			}
+		}, REQUEST_TIMEOUT);
+
+		send_request(method, params, port)
+			.then((result) => {
+				clearTimeout(timeout_id);
+				if (!resolved) {
+					resolved = true;
+					resolve(result);
+				}
+			})
+			.catch((error) => {
+				clearTimeout(timeout_id);
+				if (!resolved) {
+					resolved = true;
+					reject(error);
+				}
+			});
+	});
+}
+
+async function send_request (method, params, port) {
 	const data = {
 		method: method,
 		params: params,
