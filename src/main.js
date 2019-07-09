@@ -47,7 +47,7 @@ async function run_node (index, validator) {
 		"--log-file", logs_path,
 		"--unlock", validator,
 		"--password", PASSWORDS_PATH,
-		// "-l", "network=trace",
+		"-l", "blockchain,client,engine,sync=trace",
 	];
 
 	const parity_proc = spawn(PARITY_BIN_PATH, params);
@@ -156,68 +156,68 @@ async function create_accounts (num_nodes) {
 	return accounts;
 }
 
-async function chaos_monkey (nodes) {
-	let are_connected = true;
+async function chaos_monkey (nodes, time_pattern = [], are_connected = true) {
+	if (time_pattern.length > 0) {
+		// const split_at = Math.floor(nodes.length / 2);
+		const split_at = 1 + Math.floor((nodes.length - 1) / 4) * 2;
+		const nodes_a = nodes.slice(1, split_at);
+		const nodes_b = nodes.slice(split_at);
 
-	// const split_at = Math.floor(nodes.length / 2);
-	const split_at = 1 + Math.floor((nodes.length - 1) / 4) * 2;
-	const nodes_a = nodes.slice(1, split_at);
-	const nodes_b = nodes.slice(split_at);
-
-	return setInterval(async () => {
-		process.stdout.write((are_connected ? "Disconnecting" : "Connecting") + " all peers!    \r");
-		try {
-			{
-				const promises = [];
-				if (are_connected) {
-					for (const node_a of nodes_a) {
-						for (const node_b of nodes_b) {
-							promises.push(eth.remove_peer(node_a.rpc_port, node_b.enode));
-							promises.push(eth.remove_peer(node_b.rpc_port, node_a.enode));
+		timers.chaos_monkey_id = setTimeout(async () => {
+			process.stdout.write((are_connected ? "Disconnecting" : "Connecting") + " all peers!    \r");
+			try {
+				{
+					const promises = [];
+					if (are_connected) {
+						for (const node_a of nodes_a) {
+							for (const node_b of nodes_b) {
+								promises.push(eth.remove_peer(node_a.rpc_port, node_b.enode));
+								promises.push(eth.remove_peer(node_b.rpc_port, node_a.enode));
+							}
+						}
+						// Disconnect all from first peer
+						for (const node of nodes.slice(1)) {
+							promises.push(eth.remove_peer(nodes[0].rpc_port, node.enode));
+							promises.push(eth.remove_peer(node.rpc_port, nodes[0].enode));
+						}
+					} else {
+						for (const node_a of nodes_a) {
+							for (const node_b of nodes_b) {
+								promises.push(eth.add_peer(node_a.rpc_port, node_b.enode));
+								promises.push(eth.add_peer(node_b.rpc_port, node_a.enode));
+							}
+						}
+						// Connect all to first peer
+						for (const node of nodes.slice(1)) {
+							promises.push(eth.add_peer(nodes[0].rpc_port, node.enode));
+							promises.push(eth.add_peer(node.rpc_port, nodes[0].enode));
 						}
 					}
-					// Disconnect all from first peer
-					for (const node of nodes.slice(1)) {
-						promises.push(eth.remove_peer(nodes[0].rpc_port, node.enode));
-						promises.push(eth.remove_peer(node.rpc_port, nodes[0].enode));
-					}
-				} else {
-					for (const node_a of nodes_a) {
-						for (const node_b of nodes_b) {
-							promises.push(eth.add_peer(node_a.rpc_port, node_b.enode));
-							promises.push(eth.add_peer(node_b.rpc_port, node_a.enode));
-						}
-					}
-					// Connect all to first peer
-					for (const node of nodes.slice(1)) {
-						promises.push(eth.add_peer(nodes[0].rpc_port, node.enode));
-						promises.push(eth.add_peer(node.rpc_port, nodes[0].enode));
-					}
+					await Promise.all(promises);
+					await sleep(250);
 				}
-				await Promise.all(promises);
-				await sleep(250);
-			}
-			// To trigger disconnections, you must switch connection mode
-			{
-				const promises = [];
-				for (const node of nodes) {
-					promises.push(request("parity_acceptNonReservedPeers", [], node.rpc_port));
+				// To trigger disconnections, you must switch connection mode
+				{
+					const promises = [];
+					for (const node of nodes) {
+						promises.push(request("parity_acceptNonReservedPeers", [], node.rpc_port));
+					}
+					await Promise.all(promises);
 				}
-				await Promise.all(promises);
-			}
-			{
-				const promises = [];
-				for (const node of nodes) {
-					promises.push(request("parity_dropNonReservedPeers", [], node.rpc_port));
+				{
+					const promises = [];
+					for (const node of nodes) {
+						promises.push(request("parity_dropNonReservedPeers", [], node.rpc_port));
+					}
+					await Promise.all(promises);
 				}
-				await Promise.all(promises);
+			} catch (error) {
+				console.error("Error:", error);
 			}
-		} catch (error) {
-			console.error("Error:", error);
-		}
-		// Toggle connection, even if there are errors
-		are_connected = !are_connected;
-	}, 30 * 1000);
+
+			chaos_monkey(nodes, time_pattern.slice(1), !are_connected);
+		}, time_pattern[0] * 1000);
+	}
 }
 
 async function terminate () {
@@ -226,7 +226,7 @@ async function terminate () {
 
 	clearInterval(timers.watcher_id);
 	clearInterval(timers.worker_id);
-	clearInterval(timers.chaos_monkey_id);
+	clearTimeout(timers.chaos_monkey_id);
 
 	for (const running_process of running_processes) {
 		running_process.process.kill("SIGINT");
@@ -298,7 +298,8 @@ async function main () {
 
 	timers.watcher_id = watcher.run(nodes);
 	timers.worker_id = worker.run(nodes);
-	timers.chaos_monkey_id = chaos_monkey(nodes);
+
+	chaos_monkey(nodes, [ 30, 90, 30, 60, 30, 60, 30, 60, 30, 60, 30, 60 ]);
 }
 
 function exit_handler() {

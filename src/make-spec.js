@@ -74,7 +74,7 @@ function make_spec({ owner, validators, stakers }) {
 		name: "RandomAuRa",
 		owner,
 	});
-	// spec.engine.authorityRound.params.randomnessContractAddress = RANDOM_CONTRACT;
+	spec.engine.authorityRound.params.randomnessContractAddress = RANDOM_CONTRACT;
 
 	// Build TxPermission contract
 	add_eternal_contract(spec, {

@@ -2,13 +2,17 @@ const path = require("path");
 
 const { mkdir } = require("./utils");
 
-const PARITY_BIN_PATH = path.resolve(__dirname, "../../OG-parity-ethereum/target/release/parity");
+// const PARITY_BIN_PATH = path.resolve(__dirname, "../../OG-parity-ethereum/target/release/parity");
+const PARITY_BIN_PATH = path.resolve(__dirname, "../../parity-ethereum/target/release/parity");
+// const PARITY_BIN_PATH = path.resolve(__dirname, "../../poa-parity");
+
 const CONTRACTS_BASE_PATH = path.resolve(__dirname, "../../posdao-test-setup/posdao-contracts/build/contracts");
 const TOKEN_CONTRACT_PATH = path.resolve(__dirname, "../../posdao-test-setup/contracts/ERC677BridgeTokenRewardableMock.sol");
 
 const CONFIG_PATH = path.resolve(__dirname, "./config.toml");
 const PASSWORDS_PATH = path.resolve(__dirname, "./node.pwds");
-const BASE_SPEC_PATH = path.resolve(__dirname, "./spec-OG.json");
+// const BASE_SPEC_PATH = path.resolve(__dirname, "./spec-OG.json");
+const BASE_SPEC_PATH = path.resolve(__dirname, "./spec.json");
 
 
 const DATA_DIR = path.resolve(__dirname, "../tmp-data");
