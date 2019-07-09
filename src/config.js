@@ -9,13 +9,13 @@ const PARITY_BIN_PATH = path.resolve(__dirname, "../../parity-ethereum/target/re
 const CONTRACTS_BASE_PATH = path.resolve(__dirname, "../../posdao-test-setup/posdao-contracts/build/contracts");
 const TOKEN_CONTRACT_PATH = path.resolve(__dirname, "../../posdao-test-setup/contracts/ERC677BridgeTokenRewardableMock.sol");
 
-const CONFIG_PATH = path.resolve(__dirname, "./config.toml");
-const PASSWORDS_PATH = path.resolve(__dirname, "./node.pwds");
-// const BASE_SPEC_PATH = path.resolve(__dirname, "./spec-OG.json");
-const BASE_SPEC_PATH = path.resolve(__dirname, "./spec.json");
-
+const CONFIG_PATH = path.resolve(__dirname, "../assets/config.toml");
+const PASSWORDS_PATH = path.resolve(__dirname, "../assets/node.pwds");
+// const BASE_SPEC_PATH = path.resolve(__dirname, "../assets/spec-OG.json");
+const BASE_SPEC_PATH = path.resolve(__dirname, "../assets/spec.json");
 
 const DATA_DIR = path.resolve(__dirname, "../tmp-data");
+
 const SPEC_PATH = path.join(DATA_DIR, "spec.json");
 const ACCOUNTS_PATH = path.join(DATA_DIR, "accounts.json");
 const LOGS_DIR = path.join(DATA_DIR, "logs");
