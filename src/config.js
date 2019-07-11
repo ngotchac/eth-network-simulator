@@ -15,6 +15,7 @@ const DATA_DIR = path.resolve(__dirname, "../tmp-data");
 const SPEC_PATH = path.join(DATA_DIR, "spec.json");
 const ACCOUNTS_PATH = path.join(DATA_DIR, "accounts.json");
 const LOGS_DIR = path.join(DATA_DIR, "logs");
+const BUILDS_DIR = path.join(DATA_DIR, "builds");
 
 const CONFIG = {
 	paths: {
@@ -27,10 +28,12 @@ const CONFIG = {
 		LOGS_DIR,
 		SPEC_PATH,
 		ACCOUNTS_PATH,
+		BUILDS_DIR,
 	},
 };
 
 mkdir(DATA_DIR);
 mkdir(LOGS_DIR);
+mkdir(BUILDS_DIR);
 
 module.exports = CONFIG;

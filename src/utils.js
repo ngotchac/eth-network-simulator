@@ -1,7 +1,14 @@
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 
 const solc = require("solc");
+
+function hash (value) {
+	const hash_c = crypto.createHash("sha256");
+	hash_c.update(JSON.stringify(value));
+	return hash_c.digest('hex');
+}
 
 function find_file (filename, root_path) {
 	for (const sub_filename of fs.readdirSync(root_path)) {
@@ -21,7 +28,20 @@ function find_file (filename, root_path) {
 }
 
 function compile_contract (base_path, contract_path, contract_name) {
+	const { BUILDS_DIR } = require("./config").paths;
+
 	console.log(`Compiling ${contract_name}...`);
+
+	const build_filename = hash([ contract_path, contract_name ]) + ".json";
+	const build_filepath = path.join(BUILDS_DIR, build_filename);
+
+	try {
+		const build_contract = fs.readFileSync(build_filepath).toString();
+		return JSON.parse(build_contract);
+	} catch (_e) {
+		// console.error(_e);
+	}
+
 	const filename = `${contract_name}.sol`;
     const input = {
         language: "Solidity",
@@ -51,17 +71,26 @@ function compile_contract (base_path, contract_path, contract_name) {
 
 	const solc_result = JSON.parse(solc.compile(JSON.stringify(input), find_imports));
 	if (solc_result.errors) {
+		let has_error = false;
 		for (const error of solc_result.errors) {
+			if (error.severity === "error") {
+				has_error = true;
+			}
 			console.error(error.formattedMessage);
 		}
-		throw new Error(`Failed to compile ${filename}`);
+		// It could be only warnings
+		if (has_error) {
+			throw new Error(`Failed to compile ${filename}`);
+		}
 	}
 	const contract = solc_result.contracts[filename][contract_name];
-
-	return {
+	const compiled_contract = {
 		abi: contract.abi,
 		bytecode: contract.evm.bytecode.object,
 	};
+
+	fs.writeFileSync(build_filepath, JSON.stringify(compiled_contract));
+	return compiled_contract;
 }
 
 function rimraf (root_path) {

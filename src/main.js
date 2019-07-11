@@ -49,7 +49,7 @@ async function run_node (index, validator) {
 		"--log-file", logs_path,
 		"--unlock", validator,
 		"--password", PASSWORDS_PATH,
-		"-l", "blockchain,client,engine,sync=trace",
+		// "-l", "blockchain,client,engine,sync=trace",
 	];
 
 	const parity_proc = spawn(PARITY_BIN_PATH, params);
@@ -255,9 +255,10 @@ async function main () {
 
 	console.log(`**** Starting ${NUM_NODES} nodes...`);
 
-	rimraf(DATA_DIR);
-	mkdir(DATA_DIR);
-	mkdir(LOGS_DIR);
+	for (let node_idx = 0; node_idx < NUM_NODES; node_idx += 1) {
+		const node_data_path = path.join(DATA_DIR, `node-${node_idx}`);
+		rimraf(node_data_path);
+	}
 
 	console.log("**** Creating accounts...");
 	const accounts = await create_accounts(NUM_NODES);
