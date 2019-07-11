@@ -1,4 +1,4 @@
-pragma solidity 0.5.9;
+pragma solidity ^0.5.9;
 
 import "./abstracts/StakingBase.sol";
 import "./interfaces/IValidatorSetHBBFT.sol";

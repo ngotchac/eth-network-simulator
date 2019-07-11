@@ -1,4 +1,4 @@
-pragma solidity 0.5.9;
+pragma solidity ^0.5.9;
 
 import "./abstracts/RandomBase.sol";
 import "./interfaces/IRandomAuRa.sol";

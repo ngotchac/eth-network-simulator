@@ -1,4 +1,4 @@
-pragma solidity 0.5.9;
+pragma solidity ^0.5.9;
 
 import "./abstracts/ValidatorSetBase.sol";
 import "./interfaces/IValidatorSetAuRa.sol";
