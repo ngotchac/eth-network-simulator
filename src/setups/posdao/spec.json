@@ -9,7 +9,8 @@
 				"maximumUncleCount": 0,
                 "validators" : {
                     "list": []
-				}
+				},
+				"quorum23Transition": 0
             }
         }
     },

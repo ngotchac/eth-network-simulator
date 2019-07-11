@@ -5,12 +5,13 @@ const fs = require("fs");
 const CONFIG = require("./config");
 
 const eth = require("./eth");
-const make_spec = require("./make-spec");
 const request = require("./request");
 const watcher = require("./watcher");
 const worker = require("./worker");
 
 const { mkdir, rimraf, sleep } = require("./utils");
+
+const make_spec = require("./setups/posdao/make-spec");
 
 const {
 	PARITY_BIN_PATH,
@@ -21,6 +22,7 @@ const {
 
 	BASE_SPEC_PATH,
 	SPEC_PATH,
+	ACCOUNTS_PATH,
 } = CONFIG.paths;
 
 // Global vars
@@ -270,11 +272,18 @@ async function main () {
 			stakers.push(accounts[idx + 1]);
 		}
 
-		await make_spec({
+		const spec = await make_spec({
 			validators,
 			stakers,
 			owner,
 		});
+
+		fs.writeFileSync(SPEC_PATH, JSON.stringify(spec, null, 4));
+		{
+			const accounts = { owner, validators, stakers };
+			fs.writeFileSync(ACCOUNTS_PATH, JSON.stringify(accounts, null, 4));
+		}
+		console.log(`Wrote spec file to ${SPEC_PATH}`);
 	}
 
 	console.log("**** Starting the nodes...");

@@ -1,49 +1,31 @@
 const fs = require("fs");
 const path = require("path");
 
-const solc = require("solc");
 const Web3 = require("web3");
 
-const request = require("./request");
-const { sleep } = require("./utils");
+const request = require("../../request");
+const { compile_contract, sleep } = require("../../utils");
 
-const CONFIG = require("./config");
+const CONFIG = require("../../config");
+const POSDAO_CONFIG = require("./config");
+
+const TOKEN_CONTRACT_PATH = path.resolve(__dirname, "./ERC677BridgeTokenRewardableMock.sol");
+
 const RPC_PORT = "8540";
 
 const {
 	ACCOUNTS_PATH,
-	TOKEN_CONTRACT_PATH,
-	CONTRACTS_BASE_PATH,
 } = CONFIG.paths;
 
 const {
+	CONTRACTS_BASE_PATH,
+
 	BLOCK_REWARD_CONTRACT,
 	STAKING_CONTRACT,
-} = CONFIG.contracts;
+} = POSDAO_CONFIG;
 
-function compile_token_contract() {
-    const input = {
-        language: "Solidity",
-        sources: {
-            "Token.sol": {
-                content: fs.readFileSync(TOKEN_CONTRACT_PATH).toString(),
-            },
-        },
-        settings: {
-            outputSelection: {
-                '*': {
-                    '*': ['*'],
-                },
-            },
-        },
-    };
-	const solc_result = JSON.parse(solc.compile(JSON.stringify(input)));
-	const contract = solc_result.contracts["Token.sol"]["ERC677BridgeTokenRewardableMock"];
-
-	return {
-		abi: contract.abi,
-		bytecode: contract.evm.bytecode.object,
-	};
+function compiled_token_contract () {
+	return compile_contract(CONTRACTS_BASE_PATH, TOKEN_CONTRACT_PATH, "ERC677BridgeTokenRewardableMock");
 }
 
 const token_name = 'POSDAO';
@@ -99,7 +81,7 @@ async function deploy_staking () {
 	const accounts = JSON.parse(fs.readFileSync(ACCOUNTS_PATH));
 
 	console.log("**** Deploying StakingToken");
-	const token_compiled = compile_token_contract();
+	const token_compiled = compiled_token_contract();
 	const token_contract = await deploy_contract(
 		web3,
 		token_compiled,
@@ -124,8 +106,9 @@ async function deploy_staking () {
 	});
 
 	console.log('**** Set StakingToken address in StakingAuRa');
-	const staking_abi = JSON.parse(fs.readFileSync(path.join(CONTRACTS_BASE_PATH, "StakingAuRa.json"))).abi;
-	const staking_contract = new web3.eth.Contract(staking_abi, STAKING_CONTRACT);
+	const staking_contract_path = path.join(CONTRACTS_BASE_PATH, "StakingAuRa.sol");
+	const staking_compiled = compile_contract(CONTRACTS_BASE_PATH, staking_contract_path, "StakingAuRa");
+	const staking_contract = new web3.eth.Contract(staking_compiled.abi, STAKING_CONTRACT);
     await send_tx(web3, {
         from: accounts.owner,
         to: STAKING_CONTRACT,

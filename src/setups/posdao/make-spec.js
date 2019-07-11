@@ -3,16 +3,14 @@ const path = require("path");
 
 const Web3 = require("web3");
 
-const CONFIG = require("./config");
+const { compile_contract, find_file } = require("../../utils");
+const POSDAO_CONFIG = require("./config");
+
+const SPEC = require("./spec.json");
 
 const {
-	BASE_SPEC_PATH,
-	SPEC_PATH,
-	ACCOUNTS_PATH,
 	CONTRACTS_BASE_PATH,
-} = CONFIG.paths;
 
-const {
 	VALIDATOR_SET_CONTRACT,
 	BLOCK_REWARD_CONTRACT,
 	RANDOM_CONTRACT,
@@ -21,16 +19,10 @@ const {
 	CERTIFIER_CONTRACT,
 	REGISTRY_CONTRACT,
 	INIT_AURA_CONTRACT,
-} = CONFIG.contracts;
-
-// make_spec({
-// 	owner: "0x5000000000000000000000000000000000000001",
-// 	validators: [ "0x5000000000000000000000000000000000000001" ],
-// 	stakers: [ "0x5000000000000000000000000000000000000001" ],
-// });
+} = POSDAO_CONFIG;
 
 function make_spec({ owner, validators, stakers }) {
-	const spec = JSON.parse(fs.readFileSync(BASE_SPEC_PATH));
+	const spec = SPEC;
 
 	/// Add balance for validators and stakers
 	const accounts = [].concat(owner, validators, stakers);
@@ -132,21 +124,13 @@ function make_spec({ owner, validators, stakers }) {
 		],
 	});
 
-	fs.writeFileSync(SPEC_PATH, JSON.stringify(spec, null, 4));
-	{
-		const accounts = { owner, validators, stakers };
-		fs.writeFileSync(ACCOUNTS_PATH, JSON.stringify(accounts, null, 4));
-	}
-	console.log(`Wrote spec file to ${SPEC_PATH}`);
+	return spec;
 }
 
 function get_contract(name) {
-	const contract_path = path.join(CONTRACTS_BASE_PATH, `${name}.json`);
-	const contract = JSON.parse(fs.readFileSync(contract_path));
-	if (!contract.bytecode) {
-		throw new Error(`Invalid bytecode for ${name}`);
-	}
-	return contract;
+	const filename = `${name}.sol`;
+	const contract_path = find_file(filename, CONTRACTS_BASE_PATH);
+	return compile_contract(CONTRACTS_BASE_PATH, contract_path, name);
 }
 
 function add_contract(spec, {
